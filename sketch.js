@@ -1,134 +1,149 @@
-let port;
+let device;
 let iAngle = 0;
 let iDistance = 0;
-let noObject = "";
+let port; // WebUSB 장치 저장용
+
+// 레이더 UI용 변수
+let maxR;
 
 function setup() {
-  // 960x540 해상도로 고정 (원래 프로세싱 코드 기준)
-  createCanvas(960, 540);
-  
-  // 시리얼 객체 생성 (라이브러리 로드 후 실행됨)
-  port = createSerial();
-  
-  // 에러를 유발했던 getPorts() 호출을 삭제했습니다.
-  // 라이브러리가 내부적으로 연결을 관리하므로 수동 체크가 필요 없습니다.
-  
+  createCanvas(windowWidth, windowHeight);
+  maxR = min(width, height) * 0.9 / 2;
   smooth();
 }
 
 function draw() {
-  // 모션 블러 효과 (투명한 사각형을 덧칠함)
-  noStroke();
-  fill(0, 15); 
-  rect(0, 0, width, height);
-
-  // 데이터 읽기 (포트가 열려 있을 때만)
-  if (port && port.opened() && port.available() > 0) {
-    let str = port.readUntil('.'); 
-    if (str) {
-      processSerialData(str);
-    }
-  }
-
-  // 레이더 그리기 함수 호출
+  background(0, 20); // 잔상 효과
+  
   drawRadar();
   drawLine();
   drawObject();
   drawText();
 }
 
-function processSerialData(inputData) {
-  // 끝의 '.' 제거
-  let data = inputData.substring(0, inputData.length - 1);
-  let index1 = data.indexOf(",");
-  
-  if (index1 != -1) {
-    let angleStr = data.substring(0, index1);
-    let distanceStr = data.substring(index1 + 1);
-    
-    iAngle = int(angleStr);
-    iDistance = int(distanceStr);
+// -------------------------------------------------------------------
+// WebUSB 통신 로직 (CH340 전용)
+// -------------------------------------------------------------------
+async function connectUSB() {
+  try {
+    // 1. 장치 요청 (CH340 Vendor ID: 0x1A86)
+    device = await navigator.usb.requestDevice({
+      filters: [{ vendorId: 0x1A86 }]
+    });
+
+    await device.open();
+    await device.selectConfiguration(1);
+    await device.claimInterface(0);
+
+    // 2. CH340 초기화 (나노 통신을 위한 필수 제어 명령)
+    // 보드레이트 115200 설정 등 (링크하신 레포지토리의 핵심 로직 반영)
+    await device.controlTransferOut({
+      requestType: 'vendor', recipient: 'device',
+      request: 0xA1, value: 0xC292, index: 0x081B
+    });
+
+    console.log("CH340 나노 연결 완료!");
+    readLoop(); // 데이터 읽기 시작
+  } catch (err) {
+    console.error(err);
+    alert("연결 실패: " + err);
   }
 }
 
+async function readLoop() {
+  const decoder = new TextDecoder();
+  while (device && device.opened) {
+    try {
+      // 2번 엔드포인트에서 64바이트 읽기
+      const result = await device.transferIn(2, 64);
+      if (result.data) {
+        let text = decoder.decode(result.data);
+        processData(text);
+      }
+    } catch (err) {
+      console.log("연결 종료");
+      break;
+    }
+  }
+}
+
+let buffer = "";
+function processData(text) {
+  buffer += text;
+  if (buffer.includes('.')) {
+    let lines = buffer.split('.');
+    let lastData = lines[lines.length - 2]; 
+    buffer = lines[lines.length - 1];
+
+    let parts = lastData.split(',');
+    if (parts.length >= 2) {
+      iAngle = int(parts[0]);
+      iDistance = int(parts[1]);
+    }
+  }
+}
+
+// -------------------------------------------------------------------
+// 레이더 그래픽 함수
+// -------------------------------------------------------------------
 function drawRadar() {
   push();
-  translate(width/2, 500/2); 
+  translate(width/2, height * 0.85);
   noFill();
   strokeWeight(2);
-  stroke(98, 245, 31);
+  stroke(98, 245, 31, 150);
   
-  // 원형 호 그리기
-  arc(0, 0, 900, 900, PI, TWO_PI);
-  arc(0, 0, 700, 700, PI, TWO_PI);
-  arc(0, 0, 500, 500, PI, TWO_PI);
-  arc(0, 0, 300, 300, PI, TWO_PI);
+  for(let i=1; i<=4; i++) {
+    let d = (maxR * 2) * (i/4);
+    arc(0, 0, d, d, PI, TWO_PI);
+  }
   
-  // 각도 가이드 라인
   for (let a = 30; a <= 150; a += 30) {
-    line(0, 0, -480 * cos(radians(a)), -480 * sin(radians(a)));
+    line(0, 0, -maxR * cos(radians(a)), -maxR * sin(radians(a)));
   }
   line(-width/2, 0, width/2, 0);
   pop();
 }
 
 function drawObject() {
+  if (iDistance > 40 || iDistance <= 0) return;
   push();
-  translate(width/2, 500/2);
-  strokeWeight(9);
-  stroke(255, 10, 10); // 물체 감지 시 빨간색
+  translate(width/2, height * 0.85);
+  strokeWeight(10);
+  stroke(255, 10, 10);
   
-  let pixsDistance = iDistance * 22.5 / 2;
-  
-  if (iDistance < 40) {
-    line(pixsDistance * cos(radians(iAngle)), -pixsDistance * sin(radians(iAngle)), 
-         475 * cos(radians(iAngle)), -475 * sin(radians(iAngle)));
-  }
+  let pixsDistance = map(iDistance, 0, 40, 0, maxR);
+  let x = pixsDistance * cos(radians(iAngle));
+  let y = -pixsDistance * sin(radians(iAngle));
+  line(x, y, maxR * cos(radians(iAngle)), -maxR * sin(radians(iAngle)));
   pop();
 }
 
 function drawLine() {
   push();
-  translate(width/2, 500/2);
-  strokeWeight(9);
-  stroke(30, 250, 60); // 스캔 빔 초록색
-  line(0, 0, 475 * cos(radians(iAngle)), -475 * sin(radians(iAngle)));
+  translate(width/2, height * 0.85);
+  strokeWeight(6);
+  stroke(30, 250, 60);
+  line(0, 0, maxR * cos(radians(iAngle)), -maxR * sin(radians(iAngle)));
   pop();
 }
 
 function drawText() {
-  push();
-  noObject = (iDistance > 40) ? "Out of Range" : "In Range";
-  
-  // 하단 텍스트 영역 배경
-  fill(0);
-  noStroke();
-  rect(0, 500/2 + 10, width, height);
-  
+  fill(0); noStroke();
+  rect(0, height * 0.88, width, height * 0.12);
   fill(98, 245, 31);
-  textSize(20);
   textAlign(CENTER);
+  textSize(20);
+  text(`ANGLE: ${iAngle}° | DISTANCE: ${iDistance}cm`, width/2, height * 0.95);
   
-  // 상태 정보 표시
-  text("Object: " + noObject, width * 0.2, height - 30);
-  text("Angle: " + iAngle + "°", width * 0.5, height - 30);
-  text("Distance: " + (iDistance < 40 ? iDistance + " cm" : ""), width * 0.8, height - 30);
-  
-  // 연결 안내
-  if (port && !port.opened()) {
+  if (!device || !device.opened) {
     fill(255, 165, 0);
-    text("TAP TO CONNECT ARDUINO", width/2, height/2);
+    text("TAP TO CONNECT NANO (WebUSB)", width/2, height/2);
   }
-  pop();
 }
 
 function mousePressed() {
-  // 사용자가 화면을 클릭하면 시리얼 포트 열기 시도
-  if (port && !port.opened()) {
-    port.open(115200);
+  if (!device || !device.opened) {
+    connectUSB();
   }
-}
-
-function windowResized() {
-  // 화면 크기가 바뀌면 중앙 정렬을 위해 캔버스 크기 재조정은 안함 (비율 유지)
 }
