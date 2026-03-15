@@ -3,6 +3,11 @@ let iAngle = 0;
 let iDistance = 0;
 let noObject = "";
 
+function preload() {
+  if (typeof createSerial === 'undefined') {
+    alert("라이브러리가 로드되지 않았습니다! index.html 설정을 확인하세요.");
+  }
+}
 function setup() {
   createCanvas(windowWidth, windowHeight);
   
