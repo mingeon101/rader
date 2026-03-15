@@ -1,35 +1,26 @@
 let port;
 let iAngle = 0;
 let iDistance = 0;
-let noObject = "";
 
-function preload() {
-  if (typeof createSerial === 'undefined') {
-    alert("라이브러리가 로드되지 않았습니다! index.html 설정을 확인하세요.");
-  }
-}
 function setup() {
   createCanvas(windowWidth, windowHeight);
   
-  // 시리얼 객체 생성
+  // 1.1.1 버전 시리얼 객체 생성
   port = createSerial();
   
-  // 기존에 연결했던 장치가 있다면 자동 연결
+  // 자동 연결 시도 (최신 버전 문법에 맞춰 안전하게 처리)
   let usedPorts = port.getPorts();
-  if (usedPorts.length > 0) {
+  if (usedPorts && usedPorts.length > 0) {
     port.open(usedPorts[0], 115200);
   }
-  
-  smooth();
 }
 
 function draw() {
-  // 배경 잔상 효과
-  background(0, 20);
+  background(0, 20); // 잔상 효과
 
-  // 데이터 읽기 (포트가 열려 있을 때만 실행)
-  if (port && port.opened() && port.available() > 0) {
-    let str = port.readUntil('.');
+  // 데이터 읽기 로직
+  if (port.available() > 0) {
+    let str = port.readUntil('.'); 
     if (str) {
       let data = str.replace('.', '');
       let parts = split(data, ',');
@@ -67,7 +58,7 @@ function drawRadar() {
 }
 
 function drawObject() {
-  if (iDistance > 40) return;
+  if (iDistance > 40 || iDistance <= 0) return;
   
   push();
   translate(width/2, height * 0.85);
@@ -97,8 +88,6 @@ function drawLine() {
 }
 
 function drawText() {
-  noObject = (iDistance > 40) ? "OUT" : "IN";
-  
   fill(0);
   noStroke();
   rect(0, height * 0.88, width, height * 0.12);
@@ -107,19 +96,17 @@ function drawText() {
   textAlign(CENTER);
   textSize(min(width, height) * 0.04);
   
-  let statusText = `ANGLE: ${iAngle}° | DISTANCE: ${iDistance}cm | OBJ: ${noObject}`;
+  let statusText = `ANGLE: ${iAngle}° | DISTANCE: ${iDistance}cm`;
   text(statusText, width/2, height * 0.95);
   
-  // 연결 안내 메시지
-  if (port && !port.opened()) {
+  if (!port.opened()) {
     fill(255, 165, 0);
     text("TAP TO CONNECT ARDUINO", width/2, height/2);
   }
 }
 
 function mousePressed() {
-  // port 객체가 존재하고 닫혀있을 때만 open 호출
-  if (port && !port.opened()) {
+  if (!port.opened()) {
     port.open(115200);
   }
 }
