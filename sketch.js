@@ -1,24 +1,30 @@
 let port;
-let iAngle = 0, iDistance = 0;
+let iAngle = 0;
+let iDistance = 0;
 let noObject = "";
 
 function setup() {
-  // 화면 크기에 맞게 캔버스 생성
-  let cnv = createCanvas(windowWidth, windowHeight);
-  cnv.parent('canvas-container');
-
+  createCanvas(windowWidth, windowHeight);
+  
+  // 시리얼 객체 생성
   port = createSerial();
-
-  // 이전에 연결된 적이 있다면 자동 오픈
+  
+  // 기존에 연결했던 장치가 있다면 자동 연결
   let usedPorts = port.getPorts();
   if (usedPorts.length > 0) {
     port.open(usedPorts[0], 115200);
   }
+  
+  smooth();
 }
 
 function draw() {
-  if (port.available() > 0) {
-    let str = port.readUntil('.'); 
+  // 배경 잔상 효과
+  background(0, 20);
+
+  // 데이터 읽기 (포트가 열려 있을 때만 실행)
+  if (port && port.opened() && port.available() > 0) {
+    let str = port.readUntil('.');
     if (str) {
       let data = str.replace('.', '');
       let parts = split(data, ',');
@@ -29,7 +35,6 @@ function draw() {
     }
   }
 
-  background(0, 20); 
   drawRadar();
   drawLine();
   drawObject();
@@ -38,16 +43,16 @@ function draw() {
 
 function drawRadar() {
   push();
-  translate(width/2, height * 0.8);
+  translate(width/2, height * 0.85);
   noFill();
   strokeWeight(2);
   stroke(98, 245, 31, 150);
   
-  let r = min(width, height) * 0.8;
-  for (let i = 1; i <= 4; i++) {
-    let d = (r / 4) * i;
-    arc(0, 0, d, d, PI, TWO_PI);
-  }
+  let r = min(width, height) * 0.9;
+  arc(0, 0, r, r, PI, TWO_PI);
+  arc(0, 0, r * 0.75, r * 0.75, PI, TWO_PI);
+  arc(0, 0, r * 0.5, r * 0.5, PI, TWO_PI);
+  arc(0, 0, r * 0.25, r * 0.25, PI, TWO_PI);
   
   for (let a = 30; a <= 150; a += 30) {
     line(0, 0, -(r/2) * cos(radians(a)), -(r/2) * sin(radians(a)));
@@ -57,47 +62,59 @@ function drawRadar() {
 }
 
 function drawObject() {
+  if (iDistance > 40) return;
+  
   push();
-  translate(width/2, height * 0.8);
-  let r = min(width, height) * 0.8;
-  let maxR = r / 2;
+  translate(width/2, height * 0.85);
+  strokeWeight(10);
+  stroke(255, 10, 10);
+  
+  let maxR = (min(width, height) * 0.9) / 2;
   let pixsDistance = map(iDistance, 0, 40, 0, maxR);
   
-  if (iDistance < 40) {
-    strokeWeight(8);
-    stroke(255, 10, 10);
-    line(pixsDistance * cos(radians(iAngle)), -pixsDistance * sin(radians(iAngle)), 
-         maxR * cos(radians(iAngle)), -maxR * sin(radians(iAngle)));
-  }
+  let x = pixsDistance * cos(radians(iAngle));
+  let y = -pixsDistance * sin(radians(iAngle));
+  let endX = maxR * cos(radians(iAngle));
+  let endY = -maxR * sin(radians(iAngle));
+  
+  line(x, y, endX, endY);
   pop();
 }
 
 function drawLine() {
   push();
-  translate(width/2, height * 0.8);
-  strokeWeight(5);
+  translate(width/2, height * 0.85);
+  strokeWeight(6);
   stroke(30, 250, 60);
-  let r = (min(width, height) * 0.8) / 2;
+  let r = (min(width, height) * 0.9) / 2;
   line(0, 0, r * cos(radians(iAngle)), -r * sin(radians(iAngle)));
   pop();
 }
 
 function drawText() {
   noObject = (iDistance > 40) ? "OUT" : "IN";
-  fill(98, 245, 31);
-  noStroke();
-  textAlign(CENTER);
-  textSize(width * 0.03);
-  text(`ANG: ${iAngle}° | DIST: ${iDistance}cm | OBJ: ${noObject}`, width/2, height * 0.92);
   
-  if (!port.opened()) {
-    fill(255, 200, 0);
+  fill(0);
+  noStroke();
+  rect(0, height * 0.88, width, height * 0.12);
+  
+  fill(98, 245, 31);
+  textAlign(CENTER);
+  textSize(min(width, height) * 0.04);
+  
+  let statusText = `ANGLE: ${iAngle}° | DISTANCE: ${iDistance}cm | OBJ: ${noObject}`;
+  text(statusText, width/2, height * 0.95);
+  
+  // 연결 안내 메시지
+  if (port && !port.opened()) {
+    fill(255, 165, 0);
     text("TAP TO CONNECT ARDUINO", width/2, height/2);
   }
 }
 
 function mousePressed() {
-  if (!port.opened()) {
+  // port 객체가 존재하고 닫혀있을 때만 open 호출
+  if (port && !port.opened()) {
     port.open(115200);
   }
 }
