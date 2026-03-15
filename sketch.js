@@ -7,13 +7,6 @@ function setup() {
   
   // 1.1.1 버전 시리얼 객체 생성
   port = createSerial();
-  
-  // 자동 연결 시도 (최신 버전 문법에 맞춰 안전하게 처리)
-  let usedPorts = port.getPorts();
-  if (usedPorts && usedPorts.length > 0) {
-    port.open(usedPorts[0], 115200);
-  }
-}
 
 function draw() {
   background(0, 20); // 잔상 효과
