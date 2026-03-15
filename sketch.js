@@ -1,9 +1,6 @@
 let device;
 let iAngle = 0;
 let iDistance = 0;
-let port; // WebUSB 장치 저장용
-
-// 레이더 UI용 변수
 let maxR;
 
 function setup() {
@@ -22,31 +19,33 @@ function draw() {
 }
 
 // -------------------------------------------------------------------
-// WebUSB 통신 로직 (CH340 전용)
+// [핵심] WebUSB CH340 통신 로직
 // -------------------------------------------------------------------
 async function connectUSB() {
   try {
-    // 1. 장치 요청 (CH340 Vendor ID: 0x1A86)
+    // 반드시 클릭 이벤트 직계 실행이어야 함
     device = await navigator.usb.requestDevice({
-      filters: [{ vendorId: 0x1A86 }]
+      filters: [{ vendorId: 0x1A86 }] // CH340 나노의 벤더 ID
     });
 
     await device.open();
-    await device.selectConfiguration(1);
+    if (device.configuration === null) await device.selectConfiguration(1);
     await device.claimInterface(0);
 
-    // 2. CH340 초기화 (나노 통신을 위한 필수 제어 명령)
-    // 보드레이트 115200 설정 등 (링크하신 레포지토리의 핵심 로직 반영)
+    // CH340 보드레이트(115200) 및 초기화 제어 명령 (중요!)
     await device.controlTransferOut({
       requestType: 'vendor', recipient: 'device',
       request: 0xA1, value: 0xC292, index: 0x081B
     });
 
-    console.log("CH340 나노 연결 완료!");
-    readLoop(); // 데이터 읽기 시작
+    console.log("Nano Connected!");
+    readLoop(); 
   } catch (err) {
-    console.error(err);
-    alert("연결 실패: " + err);
+    console.error("USB Error:", err);
+    // 보안 에러 발생 시 사용자에게 명확히 알림
+    if (err.name === 'SecurityError') {
+      alert("보안 에러: 화면을 더 정확히 터치해주세요.");
+    }
   }
 }
 
@@ -54,37 +53,36 @@ async function readLoop() {
   const decoder = new TextDecoder();
   while (device && device.opened) {
     try {
-      // 2번 엔드포인트에서 64바이트 읽기
+      // CH340은 보통 2번 엔드포인트(In)를 사용
       const result = await device.transferIn(2, 64);
       if (result.data) {
-        let text = decoder.decode(result.data);
-        processData(text);
+        processRawData(decoder.decode(result.data));
       }
     } catch (err) {
-      console.log("연결 종료");
+      console.log("Disconnected");
       break;
     }
   }
 }
 
 let buffer = "";
-function processData(text) {
-  buffer += text;
+function processRawData(data) {
+  buffer += data;
   if (buffer.includes('.')) {
-    let lines = buffer.split('.');
-    let lastData = lines[lines.length - 2]; 
-    buffer = lines[lines.length - 1];
-
-    let parts = lastData.split(',');
-    if (parts.length >= 2) {
-      iAngle = int(parts[0]);
-      iDistance = int(parts[1]);
+    let parts = buffer.split('.');
+    let lastComplete = parts[parts.length - 2];
+    buffer = parts[parts.length - 1];
+    
+    let vals = lastComplete.split(',');
+    if (vals.length >= 2) {
+      iAngle = int(vals[0]);
+      iDistance = int(vals[1]);
     }
   }
 }
 
 // -------------------------------------------------------------------
-// 레이더 그래픽 함수
+// 레이더 그래픽 로직
 // -------------------------------------------------------------------
 function drawRadar() {
   push();
@@ -134,16 +132,25 @@ function drawText() {
   fill(98, 245, 31);
   textAlign(CENTER);
   textSize(20);
-  text(`ANGLE: ${iAngle}° | DISTANCE: ${iDistance}cm`, width/2, height * 0.95);
+  text(`각도: ${iAngle}° | 거리: ${iDistance}cm`, width/2, height * 0.95);
   
   if (!device || !device.opened) {
     fill(255, 165, 0);
-    text("TAP TO CONNECT NANO (WebUSB)", width/2, height/2);
+    textSize(25);
+    text("👇 여기를 터치하여 나노 연결", width/2, height/2);
   }
 }
 
+// [가장 중요] 사용자 클릭 이벤트
 function mousePressed() {
   if (!device || !device.opened) {
+    // p5.js의 mousePressed 이벤트 핸들러 내에서 즉시 호출하여
+    // 브라우저의 'User Gesture' 보안 요건을 충족함
     connectUSB();
   }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  maxR = min(width, height) * 0.9 / 2;
 }
